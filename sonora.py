@@ -75,47 +75,48 @@ def info(text):
     out(text, Color.GRAY)
 
 
-def download_youtube(url):
+def select_format():
+    warn("Choose output format:")
+    out("  1) FLAC (lossless) [default]", Color.CYAN)
+    out("  2) MP3 320kbps", Color.CYAN)
+    choice = prompt("> Select format (1 or 2, press Enter for FLAC): ").strip()
+    return "flac" if choice != "2" else "mp3"
+
+
+def download_youtube(url, fmt):
+    postprocessor = {'key': 'FFmpegExtractAudio', 'preferredcodec': fmt}
+    if fmt == 'mp3':
+        postprocessor['preferredquality'] = '320'
+
     opciones = {
         'format': 'bestaudio/best',
         'outtmpl': '%(title)s.%(ext)s',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
+        'postprocessors': [postprocessor],
     }
 
     info("Downloading from YouTube...")
     with yt_dlp.YoutubeDL(opciones) as ydl:
         ydl.download([url])
 
-    success("MP3 downloaded successfully.")
+    success(f"{fmt.upper()} downloaded successfully.")
 
 
-def download_spotify(url):
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "spotdl",
-            url,
-            "--format",
-            "mp3",
-            "--bitrate",
-            "192k",
-        ]
-    )
+def download_spotify(url, fmt):
+    args = [sys.executable, "-m", "spotdl", url, "--format", fmt]
+    if fmt == "mp3":
+        args += ["--bitrate", "320k"]
+
+    result = subprocess.run(args)
 
     if result.returncode != 0:
         raise RuntimeError("spotDL failed. Make sure it is installed: pip install spotdl")
 
 
-def download(url):
+def download(url, fmt):
     if re.match(r"https?://(open\.)?spotify\.com/", url, re.IGNORECASE):
-        download_spotify(url)
+        download_spotify(url, fmt)
     elif re.match(r"https?://(www\.)?(youtube\.com|youtu\.be)/", url, re.IGNORECASE):
-        download_youtube(url)
+        download_youtube(url, fmt)
     else:
         raise ValueError("Unsupported link. Please provide a YouTube or Spotify link.")
 
@@ -126,6 +127,10 @@ def main():
 
     out(BANNER, Color.CYAN, bold=True)
     out("-------- YouTube & Spotify audio downloader --------", Color.CYAN, bold=True)
+    separator()
+
+    fmt = select_format()
+    info(f"Output format: {fmt.upper()}")
     separator()
 
     while True:
@@ -143,7 +148,7 @@ def main():
             continue
 
         try:
-            download(url)
+            download(url, fmt)
         except Exception as e:
             error(f"Error: {e}")
 
