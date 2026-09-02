@@ -2,6 +2,10 @@ import re
 import subprocess
 import sys
 import yt_dlp
+import asyncio
+
+from spotdl import Spotdl
+from spotdl.utils.search import get_simple_songs
 
 BANNER = """███████╗ ██████╗ ███╗   ██╗ ██████╗ ██████╗  █████╗
 ██╔════╝██╔═══██╗████╗  ██║██╔═══██╗██╔══██╗██╔══██╗
@@ -102,14 +106,93 @@ def download_youtube(url, fmt):
 
 
 def download_spotify(url, fmt):
-    args = [sys.executable, "-m", "spotdl", url, "--format", fmt]
-    if fmt == "mp3":
-        args += ["--bitrate", "320k"]
+    info("Processing Spotify playlist...")
 
-    result = subprocess.run(args)
+    # Create spotDL downloader
+    downloader = Spotdl(
+        client_id=None,
+        client_secret=None,
+        downloader_settings={
+            "format": fmt,
+        },
+    )
 
-    if result.returncode != 0:
-        raise RuntimeError("spotDL failed. Make sure it is installed: pip install spotdl")
+    # Resolve the Spotify URL into individual Song objects
+    songs = get_simple_songs(
+        [url],
+        use_ytm_data=True,
+        playlist_numbering=False,
+    )
+
+    if not songs:
+        raise RuntimeError("No songs found in the Spotify playlist.")
+
+    info(f"Found {len(songs)} songs.")
+    separator()
+
+    failed = []
+
+    # Download each song independently
+    for index, song in enumerate(songs, start=1):
+        info(f"[{index}/{len(songs)}] {song.display_name}")
+
+        try:
+            result = downloader.download(song)
+
+            if result[1] is not None:
+                success(f"Downloaded: {song.display_name}")
+            else:
+                failed.append(song)
+                error(f"Failed: {song.display_name}")
+
+        except Exception as e:
+            failed.append(song)
+            error(f"Failed: {song.display_name}")
+            info(f"Reason: {e}")
+
+        separator()
+
+    # Retry failed songs individually
+    if failed:
+        warn(f"Retrying {len(failed)} failed song(s)...")
+        separator()
+
+        still_failed = []
+
+        for song in failed:
+            info(f"Retrying: {song.display_name}")
+
+            try:
+                result = downloader.download(song)
+
+                if result[1] is not None:
+                    success(f"Recovered: {song.display_name}")
+                else:
+                    still_failed.append(song)
+                    error(f"Still failed: {song.display_name}")
+
+            except Exception as e:
+                still_failed.append(song)
+                error(f"Still failed: {song.display_name}")
+                info(f"Reason: {e}")
+
+            separator()
+
+        failed = still_failed
+
+    # Final summary
+    total = len(songs)
+    downloaded = total - len(failed)
+
+    success(f"Spotify download finished: {downloaded}/{total} songs.")
+
+    if failed:
+        warn("The following songs could not be downloaded:")
+
+        for song in failed:
+            error(f"  - {song.display_name}")
+    else:
+        success("All songs downloaded successfully.")
 
 
 def download(url, fmt):
